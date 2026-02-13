@@ -10,11 +10,12 @@ import {
   StatusBar 
 } from 'react-native';
 import { StatusBar as ExpoStatusBar } from 'expo-status-bar';
-import Mexp from 'math-expression-evaluator';
+import { evaluate } from 'mathjs';
 
 export default function App() {
   const [expression, setExpression] = useState('');
   const [result, setResult] = useState('0');
+  const [lastOperation, setLastOperation] = useState(null);
 
   const { width } = Dimensions.get('window');
   const buttonSpacing = width * 0.02;
@@ -26,14 +27,11 @@ export default function App() {
         return '0';
       }
 
-      // Remove spaces
       let sanitized = expr.replace(/\s/g, '');
       
-      // Don't evaluate if expression ends with an operator (except for negative numbers)
       const operators = ['+', '*', '/'];
       const lastChar = sanitized[sanitized.length - 1];
       if (operators.includes(lastChar)) {
-        // If ends with operator, evaluate without it
         sanitized = sanitized.slice(0, -1);
       }
       
@@ -41,147 +39,183 @@ export default function App() {
         return '0';
       }
 
-      // Use math-expression-evaluator to safely evaluate the expression
-      const result = Mexp.eval(sanitized);
+      const result = evaluate(sanitized);
       
-      // Check for invalid results (NaN)
-      if (isNaN(result)) {
+      if (!isFinite(result) || isNaN(result)) {
         return 'Error';
       }
       
-      // Check for Infinity (division by zero, etc.)
-      if (result === Infinity || result === -Infinity) {
-        return 'Error';
-      }
-      
-      // Check if result is a valid number
-      // Use typeof to check if it's a number, and then check if it's finite
-      if (typeof result !== 'number') {
-        return 'Error';
-      }
-      
-      // For very large numbers, always use scientific notation instead of rejecting
-      const absResult = Math.abs(result);
-      
-      // JavaScript's Number.MAX_SAFE_INTEGER is 2^53 - 1 (about 9e15)
-      // For numbers larger than 1e12, use scientific notation to avoid precision issues
-      if (absResult >= 1e12 || (absResult < 1e-6 && absResult > 0)) {
-        // Use scientific notation for very large or very small numbers
-        try {
-          const scientific = result.toExponential(10);
-          // Clean up: remove trailing zeros after decimal, remove + sign in exponent
-          return scientific.replace(/\.?0+e/, 'e').replace(/e\+/, 'e');
-        } catch (e) {
-          // If toExponential fails, the number might be too large
-          return 'Error';
-        }
-      }
-
-      // For normal numbers, format normally and remove trailing zeros
-      let formatted = result.toString();
-      
-      // Handle very long decimal numbers (precision issues)
-      if (formatted.length > 15 && formatted.includes('.')) {
-        // If number is too long, use scientific notation
-        const scientific = result.toExponential(10);
-        return scientific.replace(/\.?0+e/, 'e').replace(/e\+/, 'e');
-      }
-      
-      // Remove trailing zeros for decimal numbers
-      if (formatted.includes('.')) {
-        formatted = formatted.replace(/\.?0+$/, '');
-      }
-      
-      return formatted;
+      return formatResult(result);
     } catch (e) {
-      console.error('Evaluation error:', e, 'Expression:', expr);
       return 'Error';
     }
   };
 
+  const formatResult = (result) => {
+    const absResult = Math.abs(result);
+    
+    if (absResult > Number.MAX_SAFE_INTEGER) {
+      try {
+        const scientific = result.toExponential(10);
+        const cleaned = scientific.replace(/\.?0+e/, 'e').replace(/e\+/, 'e');
+        return cleaned;
+      } catch (e) {
+        try {
+          const scientific = result.toExponential(5);
+          return scientific.replace(/\.?0+e/, 'e').replace(/e\+/, 'e');
+        } catch (e2) {
+          return 'Error';
+        }
+      }
+    }
+    
+    if (absResult >= 1e12 || (absResult < 1e-6 && absResult > 0)) {
+      const scientific = result.toExponential(10);
+      return scientific.replace(/\.?0+e/, 'e').replace(/e\+/, 'e');
+    }
+
+    let formatted = result.toString();
+    
+    if (formatted.length > 15 && formatted.includes('.')) {
+      const scientific = result.toExponential(10);
+      return scientific.replace(/\.?0+e/, 'e').replace(/e\+/, 'e');
+    }
+    
+    if (formatted.includes('.')) {
+      formatted = formatted.replace(/\.?0+$/, '');
+    }
+    
+    return formatted;
+  };
+
   const handleButtonPress = (buttonText) => {
 
-    // AC: Clear everything - expression and result
     if (buttonText === 'AC') {
       setExpression('');
       setResult('0');
+      setLastOperation(null);
       return;
     }
 
-    // C: Delete last character of expression
     if (buttonText === 'C') {
       if (expression.length === 0) {
-        // If expression is already empty, ensure result is "0"
         setResult('0');
         return;
       }
       const newExpr = expression.slice(0, -1);
       setExpression(newExpr);
-      // Only reset result to "0" if expression becomes empty
       if (newExpr.length === 0) {
         setResult('0');
       }
-      // Don't recalculate result - wait for "=" button
       return;
     }
 
-    // =: Calculate and display result
     if (buttonText === '=') {
-      if (!expression) return;
-      setResult(evaluateExpression(expression));
+      if (!expression) {
+        if (lastOperation) {
+          const newExpr = result + lastOperation.operator + lastOperation.value;
+          const newResult = evaluateExpression(newExpr);
+          setResult(newResult);
+          setExpression(newExpr);
+        }
+        return;
+      }
+      
+      const calculatedResult = evaluateExpression(expression);
+      setResult(calculatedResult);
+      
+      const operators = ['+', '-', '*', '/'];
+      let lastOp = null;
+      let lastVal = null;
+      
+      for (let i = expression.length - 1; i >= 0; i--) {
+        if (operators.includes(expression[i])) {
+          if (expression[i] === '-' && i > 0 && operators.includes(expression[i - 1])) {
+            continue;
+          }
+          lastOp = expression[i];
+          lastVal = expression.substring(i + 1);
+          break;
+        }
+      }
+      
+      if (lastOp && lastVal) {
+        setLastOperation({ operator: lastOp, value: lastVal });
+      } else {
+        setLastOperation(null);
+      }
       return;
     }
 
     if (buttonText === '.') {
-      const parts = expression.split(/[-+*/]/);
-      const lastNumber = parts[parts.length - 1];
-      if (lastNumber.includes('.')) {
+      const operators = ['+', '-', '*', '/'];
+      const lastChar = expression.slice(-1);
+      
+      if (expression.length === 0 || operators.includes(lastChar)) {
+        const newExpr = expression + '0.';
+        setExpression(newExpr);
         return;
       }
+      
+      const lastNumberMatch = expression.match(/([-]?\d*\.?\d*)$/);
+      if (lastNumberMatch && lastNumberMatch[0].includes('.')) {
+        return;
+      }
+      
+      const newExpr = expression + '.';
+      setExpression(newExpr);
+      return;
     }
 
-    // Handle negative number at the start or after an operator
     const operators = ['+', '-', '*', '/'];
     const lastChar = expression.slice(-1);
     
-    // Prevent consecutive operators (except for negative numbers)
-    if (operators.includes(buttonText) && operators.includes(lastChar)) {
-      // If trying to add operator after another operator, replace the last one
-      // Exception: allow '-' after operator for negative numbers
-      if (buttonText === '-' && operators.includes(lastChar)) {
-        const newExpr = expression + '-';
-        setExpression(newExpr);
-        // Don't calculate result - wait for "=" button
+    if (operators.includes(buttonText) && result !== '0' && expression === '') {
+      const newExpr = result + buttonText;
+      setExpression(newExpr);
+      setLastOperation(null);
+      return;
+    }
+    
+    if (operators.includes(buttonText) && expression.length === 0) {
+      if (buttonText === '-') {
+        setExpression('-');
         return;
       } else {
-        // Replace last operator with new one
-        const newExpr = expression.slice(0, -1) + buttonText;
-        setExpression(newExpr);
-        // Don't calculate result - wait for "=" button
         return;
       }
     }
     
-    // Handle negative number at the start
+    if (operators.includes(buttonText) && operators.includes(lastChar)) {
+      if (buttonText === '-' && operators.includes(lastChar)) {
+        const newExpr = expression + '-';
+        setExpression(newExpr);
+        setLastOperation(null);
+        return;
+      } else {
+        const newExpr = expression.slice(0, -1) + buttonText;
+        setExpression(newExpr);
+        setLastOperation(null);
+        return;
+      }
+    }
+    
     if (buttonText === '-' && expression.length === 0) {
-      const newExpr = '-';
-      setExpression(newExpr);
-      // Don't change result - keep current result or "0"
+      setExpression('-');
+      setLastOperation(null);
       return;
     }
 
-    // Handle negative number after operator
     if (buttonText === '-' && operators.includes(lastChar)) {
       const newExpr = expression + '-';
       setExpression(newExpr);
-      // Don't calculate result - wait for "=" button
+      setLastOperation(null);
       return;
     }
 
-    // Add the button text to expression
     const newExpr = expression + buttonText;
     setExpression(newExpr);
-    // Don't calculate result - wait for "=" button
+    setLastOperation(null);
   };
 
   const renderButton = (text, buttonStyle = {}, textStyle = {}) => (
@@ -255,7 +289,6 @@ export default function App() {
 const { width, height } = Dimensions.get('window');
 const statusBarHeight = Platform.OS === 'android' ? StatusBar.currentHeight : 0;
 
-// Responsive calculations
 const isTablet = width >= 600;
 const buttonSpacing = width * 0.02;
 const buttonSize = (width - (buttonSpacing * 5)) / 4;
