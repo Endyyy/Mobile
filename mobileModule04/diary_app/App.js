@@ -1,16 +1,18 @@
 import { StatusBar } from 'expo-status-bar';
 import { FontAwesome } from '@expo/vector-icons';
 import { useState } from 'react';
-import { Pressable, SafeAreaView, StyleSheet, Text, View } from 'react-native';
+import { ImageBackground, Pressable, SafeAreaView, StyleSheet, Text, View } from 'react-native';
 
 function HomeScreen({ onLoginPress }) {
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Bienvenue</Text>
-      <Pressable style={styles.button} onPress={onLoginPress}>
-        <Text style={styles.buttonText}>Se connecter</Text>
-      </Pressable>
-    </View>
+    <ImageBackground source={require('./assets/real_background.png')} style={styles.homeBackground} resizeMode="cover">
+      <View style={styles.homeOverlay}>
+        <Text style={styles.welcomeTitle}>Bienvenue</Text>
+        <Pressable style={styles.button} onPress={onLoginPress}>
+          <Text style={styles.buttonText}>Se connecter</Text>
+        </Pressable>
+      </View>
+    </ImageBackground>
   );
 }
 
@@ -55,7 +57,19 @@ export default function App() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#f8fafc',
+    backgroundColor: '#0f172a',
+  },
+  homeBackground: {
+    flex: 1,
+    width: '100%',
+  },
+  homeOverlay: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(15, 23, 42, 0.35)',
+    paddingHorizontal: 24,
+    gap: 18,
   },
   container: {
     flex: 1,
@@ -70,6 +84,16 @@ const styles = StyleSheet.create({
     color: '#0f172a',
     textAlign: 'center',
   },
+  welcomeTitle: {
+    fontSize: 44,
+    fontWeight: '800',
+    color: '#f8fafc',
+    textAlign: 'center',
+    letterSpacing: 1.2,
+    textShadowColor: 'rgba(15, 23, 42, 0.65)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 10,
+  },
   subtitle: {
     fontSize: 16,
     color: '#334155',
@@ -77,15 +101,18 @@ const styles = StyleSheet.create({
   },
   button: {
     marginTop: 8,
-    backgroundColor: '#2563eb',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 10,
+    backgroundColor: 'rgba(15, 23, 42, 0.72)',
+    borderWidth: 1,
+    borderColor: 'rgba(248, 250, 252, 0.8)',
+    paddingHorizontal: 30,
+    paddingVertical: 14,
+    borderRadius: 14,
   },
   buttonText: {
-    color: '#ffffff',
-    fontSize: 16,
-    fontWeight: '600',
+    color: '#f8fafc',
+    fontSize: 17,
+    fontWeight: '700',
+    letterSpacing: 0.4,
   },
   secondaryButton: {
     marginTop: 8,
