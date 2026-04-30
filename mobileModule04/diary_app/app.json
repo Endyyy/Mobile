@@ -2,6 +2,7 @@
   "expo": {
     "name": "diary_app",
     "slug": "diary-app",
+    "scheme": "diaryapp",
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
@@ -20,6 +21,9 @@
         "backgroundColor": "#ffffff"
       }
     },
-    "web": {}
+    "web": {},
+    "plugins": [
+      "expo-web-browser"
+    ]
   }
 }
