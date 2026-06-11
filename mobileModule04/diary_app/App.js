@@ -126,6 +126,7 @@ export default function App() {
     androidClientId: OAUTH_CONFIG.google.androidClientId,
     iosClientId: OAUTH_CONFIG.google.iosClientId,
     webClientId: OAUTH_CONFIG.google.webClientId,
+    selectAccount: true,
     scopes: ['profile', 'email'],
   });
 
