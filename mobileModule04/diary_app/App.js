@@ -1,11 +1,18 @@
 import { StatusBar } from 'expo-status-bar';
 import { FontAwesome } from '@expo/vector-icons';
+import {
+  GoogleSignin,
+  GoogleSigninButton,
+  isCancelledResponse,
+  isSuccessResponse,
+  statusCodes,
+} from '@react-native-google-signin/google-signin';
 import * as AuthSession from 'expo-auth-session';
-import * as Google from 'expo-auth-session/providers/google';
 import * as WebBrowser from 'expo-web-browser';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEffect, useMemo, useState } from 'react';
-import { ImageBackground, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ImageBackground, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { WebView } from 'react-native-webview';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { initializeApp, getApps } from 'firebase/app';
 import {
@@ -33,6 +40,7 @@ try {
   auth = getAuth(firebaseApp);
 }
 const db = getFirestore(firebaseApp);
+const isConfigured = (value) => Boolean(value) && !value.startsWith('YOUR_');
 
 function HomeScreen({ onLoginPress }) {
   return (
@@ -57,6 +65,10 @@ function AuthScreen({
   authError,
   canUseGoogle,
   canUseGithub,
+  isGithubModalVisible,
+  githubAuthUrl,
+  onCloseGithubModal,
+  onGithubWebViewRequest,
 }) {
   if (authUser) {
     return (
@@ -88,21 +100,35 @@ function AuthScreen({
           <Text style={styles.socialButtonText}>Continuer avec GitHub</Text>
         </View>
       </Pressable>
-      <Pressable
-        style={[styles.socialButton, (!canUseGoogle || isLoading) && styles.socialButtonDisabled]}
+      <GoogleSigninButton
+        size={GoogleSigninButton.Size.Wide}
+        color={GoogleSigninButton.Color.Light}
+        style={[styles.googleButton, (!canUseGoogle || isLoading) && styles.socialButtonDisabled]}
         onPress={onGoogleLogin}
         disabled={!canUseGoogle || isLoading}
-      >
-        <View style={styles.socialButtonContent}>
-          <FontAwesome name="google" size={20} color="#EA4335" />
-          <Text style={styles.socialButtonText}>Continuer avec Google</Text>
-        </View>
-      </Pressable>
+      />
       {isLoading ? <Text style={styles.infoText}>Connexion en cours...</Text> : null}
       {authError ? <Text style={styles.errorText}>{authError}</Text> : null}
       <Pressable style={styles.secondaryButton} onPress={onBackPress}>
         <Text style={styles.secondaryButtonText}>Retour</Text>
       </Pressable>
+      <Modal visible={isGithubModalVisible} animationType="slide" onRequestClose={onCloseGithubModal}>
+        <SafeAreaView style={styles.githubModalContainer}>
+          <View style={styles.githubModalHeader}>
+            <Text style={styles.githubModalTitle}>Connexion GitHub</Text>
+            <Pressable style={styles.secondaryButton} onPress={onCloseGithubModal}>
+              <Text style={styles.secondaryButtonText}>Fermer</Text>
+            </Pressable>
+          </View>
+          {githubAuthUrl ? (
+            <WebView
+              source={{ uri: githubAuthUrl }}
+              onShouldStartLoadWithRequest={onGithubWebViewRequest}
+              startInLoadingState
+            />
+          ) : null}
+        </SafeAreaView>
+      </Modal>
     </View>
   );
 }
@@ -112,6 +138,9 @@ export default function App() {
   const [authUser, setAuthUser] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [authError, setAuthError] = useState('');
+  const [isGithubModalVisible, setIsGithubModalVisible] = useState(false);
+  const [githubAuthUrl, setGithubAuthUrl] = useState('');
+  const [githubOauthState, setGithubOauthState] = useState('');
 
   const githubDiscovery = useMemo(
     () => ({
@@ -121,25 +150,19 @@ export default function App() {
     [],
   );
 
-  const [googleRequest, googleResponse, promptGoogleAsync] = Google.useAuthRequest({
-    expoClientId: OAUTH_CONFIG.google.expoClientId,
-    androidClientId: OAUTH_CONFIG.google.androidClientId,
-    iosClientId: OAUTH_CONFIG.google.iosClientId,
-    webClientId: OAUTH_CONFIG.google.webClientId,
-    selectAccount: true,
-    scopes: ['profile', 'email'],
-  });
+  const isGoogleConfigured = isConfigured(OAUTH_CONFIG.google.webClientId);
 
-  const [githubRequest, githubResponse, promptGithubAsync] = AuthSession.useAuthRequest(
-    {
-      clientId: OAUTH_CONFIG.github.clientId,
-      scopes: ['read:user', 'user:email'],
-      responseType: AuthSession.ResponseType.Token,
-      usePKCE: false,
-      redirectUri: AuthSession.makeRedirectUri({ scheme: 'diaryapp' }),
-    },
-    githubDiscovery,
-  );
+  const isGithubConfigured = isConfigured(OAUTH_CONFIG.github.clientId);
+
+  useEffect(() => {
+    if (!isGoogleConfigured) return;
+    GoogleSignin.configure({
+      webClientId: OAUTH_CONFIG.google.webClientId,
+      ...(isConfigured(OAUTH_CONFIG.google.iosClientId) && {
+        iosClientId: OAUTH_CONFIG.google.iosClientId,
+      }),
+    });
+  }, [isGoogleConfigured]);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -162,72 +185,111 @@ export default function App() {
     return unsubscribe;
   }, []);
 
-  useEffect(() => {
-    const loginWithGoogleCredential = async () => {
-      if (googleResponse?.type !== 'success') return;
-      try {
-        setIsLoading(true);
-        setAuthError('');
-        const { idToken, accessToken } = googleResponse.authentication ?? {};
-        if (!idToken && !accessToken) {
-          throw new Error('Token Google introuvable');
-        }
-        const credential = GoogleAuthProvider.credential(idToken ?? null, accessToken ?? null);
-        await signInWithCredential(auth, credential);
-      } catch (error) {
-        setAuthError(error.message || 'Erreur de connexion Google');
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    loginWithGoogleCredential();
-  }, [googleResponse]);
-
-  useEffect(() => {
-    const loginWithGithubCredential = async () => {
-      if (githubResponse?.type !== 'success') return;
-      try {
-        setIsLoading(true);
-        setAuthError('');
-        const accessToken = githubResponse.params?.access_token || githubResponse.authentication?.accessToken;
-        if (!accessToken) {
-          throw new Error('Token GitHub introuvable');
-        }
-        const credential = GithubAuthProvider.credential(accessToken);
-        await signInWithCredential(auth, credential);
-      } catch (error) {
-        setAuthError(error.message || 'Erreur de connexion GitHub');
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    loginWithGithubCredential();
-  }, [githubResponse]);
-
   const handleGoogleLogin = async () => {
+    if (!isGoogleConfigured) {
+      setAuthError('Configuration Google OAuth manquante dans firebaseConfig.js');
+      return;
+    }
+
     try {
+      setIsLoading(true);
       setAuthError('');
-      await promptGoogleAsync();
+      await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+      const response = await GoogleSignin.signIn();
+
+      if (isCancelledResponse(response)) return;
+      if (!isSuccessResponse(response)) {
+        throw new Error('Connexion Google invalide');
+      }
+
+      const idToken = response.data.idToken;
+      if (!idToken) {
+        throw new Error('Token Google introuvable');
+      }
+
+      const credential = GoogleAuthProvider.credential(idToken);
+      await signInWithCredential(auth, credential);
     } catch (error) {
-      setAuthError(error.message || 'Impossible de lancer la connexion Google');
+      if (error?.code === statusCodes.SIGN_IN_CANCELLED) return;
+      setAuthError(error.message || 'Erreur de connexion Google');
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const handleGithubLogin = async () => {
-    try {
-      setAuthError('');
-      await promptGithubAsync();
-    } catch (error) {
-      setAuthError(error.message || 'Impossible de lancer la connexion GitHub');
+    if (!isGithubConfigured) {
+      setAuthError('Configuration GitHub OAuth manquante dans firebaseConfig.js');
+      return;
     }
+
+    const redirectUri = AuthSession.makeRedirectUri({ scheme: 'diaryapp' });
+    const state = Math.random().toString(36).slice(2, 12);
+    const params = new URLSearchParams({
+      client_id: OAUTH_CONFIG.github.clientId,
+      redirect_uri: redirectUri,
+      scope: 'read:user user:email',
+      response_type: 'token',
+      state,
+    });
+
+    setGithubOauthState(state);
+    setGithubAuthUrl(`${githubDiscovery.authorizationEndpoint}?${params.toString()}`);
+    setIsGithubModalVisible(true);
+    setAuthError('');
+  };
+
+  const handleGithubWebViewRequest = (request) => {
+    const redirectUri = AuthSession.makeRedirectUri({ scheme: 'diaryapp' });
+    if (!request.url.startsWith(redirectUri)) return true;
+
+    const fragment = request.url.split('#')[1] ?? '';
+    const fragmentParams = new URLSearchParams(fragment);
+    const accessToken = fragmentParams.get('access_token');
+    const state = fragmentParams.get('state');
+    const errorDescription = fragmentParams.get('error_description');
+
+    const completeGithubLogin = async () => {
+      try {
+        setIsLoading(true);
+        if (errorDescription) {
+          throw new Error(errorDescription);
+        }
+        if (!accessToken) {
+          throw new Error('Token GitHub introuvable');
+        }
+        if (!state || state !== githubOauthState) {
+          throw new Error('Etat OAuth GitHub invalide');
+        }
+        const credential = GithubAuthProvider.credential(accessToken);
+        await signInWithCredential(auth, credential);
+        setGithubAuthUrl('');
+        setGithubOauthState('');
+      } catch (error) {
+        setAuthError(error.message || 'Erreur de connexion GitHub');
+      } finally {
+        setIsGithubModalVisible(false);
+        setIsLoading(false);
+      }
+    };
+
+    completeGithubLogin();
+    return false;
+  };
+
+  const handleCloseGithubModal = () => {
+    setIsGithubModalVisible(false);
+    setGithubAuthUrl('');
+    setGithubOauthState('');
   };
 
   const handleLogout = async () => {
     try {
       setAuthError('');
       await signOut(auth);
+      if (isGoogleConfigured) {
+        await GoogleSignin.signOut();
+      }
     } catch (error) {
       setAuthError(error.message || 'Erreur lors de la deconnexion');
     }
@@ -246,8 +308,12 @@ export default function App() {
           isLoading={isLoading}
           authUser={authUser}
           authError={authError}
-          canUseGoogle={Boolean(googleRequest)}
-          canUseGithub={Boolean(githubRequest)}
+          canUseGoogle={isGoogleConfigured}
+          canUseGithub={isGithubConfigured}
+          isGithubModalVisible={isGithubModalVisible}
+          githubAuthUrl={githubAuthUrl}
+          onCloseGithubModal={handleCloseGithubModal}
+          onGithubWebViewRequest={handleGithubWebViewRequest}
         />
       )}
       <StatusBar style="auto" />
@@ -350,6 +416,29 @@ const styles = StyleSheet.create({
   },
   socialButtonDisabled: {
     opacity: 0.5,
+  },
+  googleButton: {
+    width: '100%',
+    maxWidth: 320,
+    height: 48,
+  },
+  githubModalContainer: {
+    flex: 1,
+    backgroundColor: '#f8fafc',
+  },
+  githubModalHeader: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderBottomWidth: 1,
+    borderBottomColor: '#cbd5e1',
+  },
+  githubModalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#0f172a',
   },
   infoText: {
     fontSize: 14,
