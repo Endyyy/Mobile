@@ -1,21 +1,21 @@
+const env = (key) => process.env[key] ?? '';
+
 export const FIREBASE_CONFIG = {
-  apiKey: 'AIzaSyAul8bdgMHKozbQEcWjAzZmrmTtDQh22iU',
-  authDomain: 'diary-1d8a9.firebaseapp.com',
-  projectId: 'diary-1d8a9',
-  storageBucket: 'diary-1d8a9.firebasestorage.app',
-  messagingSenderId: '872905102438',
-  appId: '1:872905102438:web:c648ce35bb4f1d133649a7',
+  apiKey: env('EXPO_PUBLIC_FIREBASE_API_KEY'),
+  authDomain: env('EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN'),
+  projectId: env('EXPO_PUBLIC_FIREBASE_PROJECT_ID'),
+  storageBucket: env('EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET'),
+  messagingSenderId: env('EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID'),
+  appId: env('EXPO_PUBLIC_FIREBASE_APP_ID'),
 };
 
 export const OAUTH_CONFIG = {
   google: {
-    // webClientId = "Web client (auto created by Google Service)" dans Google Cloud Console
-    // PAS le client iOS ni Android. Firebase > Parametres > Vos applications > SDK Web.
-    webClientId: '872905102438-i26rmcgmlamjunk8cj1codqjfidfj850.apps.googleusercontent.com',
-    iosClientId: 'YOUR_GOOGLE_IOS_CLIENT_ID',
+    webClientId: env('EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID'),
+    iosClientId: env('EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID'),
   },
   github: {
-    clientId: 'Ov23lijsx5ARPlgVnWQQ',
-    clientSecret: '4cc6823f732093e293b4d71e21a69c076f8f1ce5',
+    clientId: env('EXPO_PUBLIC_GITHUB_CLIENT_ID'),
+    clientSecret: env('EXPO_PUBLIC_GITHUB_CLIENT_SECRET'),
   },
 };
