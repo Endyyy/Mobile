@@ -4,8 +4,7 @@ import { GoogleSignin, GoogleSigninButton, statusCodes } from '@react-native-goo
 import * as AuthSession from 'expo-auth-session';
 import * as WebBrowser from 'expo-web-browser';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ImageBackground, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
-import { WebView } from 'react-native-webview';
+import { ImageBackground, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   GithubAuthProvider,
@@ -20,6 +19,11 @@ import { OAUTH_CONFIG } from './firebaseConfig';
 import ProfileScreen from './screens/ProfileScreen';
 
 WebBrowser.maybeCompleteAuthSession();
+
+const GITHUB_DISCOVERY = {
+  authorizationEndpoint: 'https://github.com/login/oauth/authorize',
+  tokenEndpoint: 'https://github.com/login/oauth/access_token',
+};
 
 const isConfigured = (value) => Boolean(value) && !value.startsWith('YOUR_');
 
@@ -44,23 +48,19 @@ function AuthScreen({
   authError,
   canUseGoogle,
   canUseGithub,
-  isGithubModalVisible,
-  githubAuthUrl,
-  onCloseGithubModal,
-  onGithubWebViewRequest,
 }) {
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Authentification</Text>
-      <Text style={styles.subtitle}>Choisis ton provider</Text>
+      <Text style={styles.title}>Authentication</Text>
+      <Text style={styles.subtitle}>Choose your provider</Text>
       <Pressable
-        style={[styles.socialButton, (!canUseGithub || isLoading) && styles.socialButtonDisabled]}
+        style={[styles.githubButton, (!canUseGithub || isLoading) && styles.socialButtonDisabled]}
         onPress={onGithubLogin}
         disabled={!canUseGithub || isLoading}
       >
         <View style={styles.socialButtonContent}>
           <FontAwesome name="github" size={20} color="#111827" />
-          <Text style={styles.socialButtonText}>Continuer avec GitHub</Text>
+          <Text style={styles.socialButtonText}>Sign in with GitHub</Text>
         </View>
       </Pressable>
       <GoogleSigninButton
@@ -70,28 +70,11 @@ function AuthScreen({
         onPress={onGoogleLogin}
         disabled={!canUseGoogle || isLoading}
       />
-      {isLoading ? <Text style={styles.infoText}>Connexion en cours...</Text> : null}
+      {isLoading ? <Text style={styles.infoText}>Signing in...</Text> : null}
       {authError ? <Text style={styles.errorText}>{authError}</Text> : null}
       <Pressable style={styles.secondaryButton} onPress={onBackPress}>
-        <Text style={styles.secondaryButtonText}>Retour</Text>
+        <Text style={styles.secondaryButtonText}>Back</Text>
       </Pressable>
-      <Modal visible={isGithubModalVisible} animationType="slide" onRequestClose={onCloseGithubModal}>
-        <SafeAreaView style={styles.githubModalContainer}>
-          <View style={styles.githubModalHeader}>
-            <Text style={styles.githubModalTitle}>Connexion GitHub</Text>
-            <Pressable style={styles.secondaryButton} onPress={onCloseGithubModal}>
-              <Text style={styles.secondaryButtonText}>Fermer</Text>
-            </Pressable>
-          </View>
-          {githubAuthUrl ? (
-            <WebView
-              source={{ uri: githubAuthUrl }}
-              onShouldStartLoadWithRequest={onGithubWebViewRequest}
-              startInLoadingState
-            />
-          ) : null}
-        </SafeAreaView>
-      </Modal>
     </View>
   );
 }
@@ -102,17 +85,17 @@ export default function App() {
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [authError, setAuthError] = useState('');
-  const [isGithubModalVisible, setIsGithubModalVisible] = useState(false);
-  const [githubAuthUrl, setGithubAuthUrl] = useState('');
-  const [githubOauthState, setGithubOauthState] = useState('');
   const signingIn = useRef(false);
 
-  const githubDiscovery = useMemo(
-    () => ({
-      authorizationEndpoint: 'https://github.com/login/oauth/authorize',
-      tokenEndpoint: 'https://github.com/login/oauth/access_token',
-    }),
-    [],
+  const githubRedirectUri = useMemo(() => AuthSession.makeRedirectUri({ scheme: 'diaryapp' }), []);
+  const [githubRequest, , githubPromptAsync] = AuthSession.useAuthRequest(
+    {
+      clientId: OAUTH_CONFIG.github.clientId,
+      scopes: ['read:user', 'user:email'],
+      redirectUri: githubRedirectUri,
+      responseType: AuthSession.ResponseType.Token,
+    },
+    GITHUB_DISCOVERY,
   );
 
   const isGoogleConfigured = isConfigured(OAUTH_CONFIG.google.webClientId);
@@ -168,7 +151,7 @@ export default function App() {
   const handleGoogleLogin = async () => {
     if (signingIn.current) return;
     if (!isGoogleConfigured) {
-      setAuthError('Configuration Google OAuth manquante dans firebaseConfig.js');
+      setAuthError('Missing Google OAuth configuration in firebaseConfig.js');
       return;
     }
 
@@ -183,20 +166,18 @@ export default function App() {
         const credential = GoogleAuthProvider.credential(data.idToken);
         await signInWithCredential(auth, credential);
       } else {
-        throw new Error(
-          'Token Google introuvable. Utilisez le client Web Firebase (pas le client iOS/Android) dans webClientId.',
-        );
+        throw new Error('Google ID token not found. Check webClientId in firebaseConfig.js.');
       }
     } catch (error) {
       if (error?.code === statusCodes.SIGN_IN_CANCELLED) return;
       console.error('Google Sign-In Error:', error);
       if (error?.code === statusCodes.DEVELOPER_ERROR) {
         setAuthError(
-          'DEVELOPER_ERROR : ajoutez le SHA-1 debug dans Firebase (projet diary-1d8a9) pour le package com.achretie.diaryapp, puis utilisez le client Web OAuth comme webClientId. Lancez: npm run android:sha1',
+          'DEVELOPER_ERROR: add your debug SHA-1 in Firebase for package com.achretie.diaryapp and use the Web OAuth client as webClientId. Run: npm run android:sha1',
         );
         return;
       }
-      setAuthError(error.message || 'Erreur de connexion Google');
+      setAuthError(error.message || 'Google sign-in failed');
     } finally {
       setIsLoading(false);
       signingIn.current = false;
@@ -204,69 +185,41 @@ export default function App() {
   };
 
   const handleGithubLogin = async () => {
+    if (signingIn.current) return;
     if (!isGithubConfigured) {
-      setAuthError('Configuration GitHub OAuth manquante dans firebaseConfig.js');
+      setAuthError('Missing GitHub OAuth configuration in firebaseConfig.js');
+      return;
+    }
+    if (!githubRequest) {
+      setAuthError('GitHub sign-in is not ready yet');
       return;
     }
 
-    const redirectUri = AuthSession.makeRedirectUri({ scheme: 'diaryapp' });
-    const state = Math.random().toString(36).slice(2, 12);
-    const params = new URLSearchParams({
-      client_id: OAUTH_CONFIG.github.clientId,
-      redirect_uri: redirectUri,
-      scope: 'read:user user:email',
-      response_type: 'token',
-      state,
-    });
+    signingIn.current = true;
+    try {
+      setIsLoading(true);
+      setAuthError('');
+      const result = await githubPromptAsync();
 
-    setGithubOauthState(state);
-    setGithubAuthUrl(`${githubDiscovery.authorizationEndpoint}?${params.toString()}`);
-    setIsGithubModalVisible(true);
-    setAuthError('');
-  };
-
-  const handleGithubWebViewRequest = (request) => {
-    const redirectUri = AuthSession.makeRedirectUri({ scheme: 'diaryapp' });
-    if (!request.url.startsWith(redirectUri)) return true;
-
-    const fragment = request.url.split('#')[1] ?? '';
-    const fragmentParams = new URLSearchParams(fragment);
-    const accessToken = fragmentParams.get('access_token');
-    const state = fragmentParams.get('state');
-    const errorDescription = fragmentParams.get('error_description');
-
-    const completeGithubLogin = async () => {
-      try {
-        setIsLoading(true);
-        if (errorDescription) {
-          throw new Error(errorDescription);
-        }
-        if (!accessToken) {
-          throw new Error('Token GitHub introuvable');
-        }
-        if (!state || state !== githubOauthState) {
-          throw new Error('Etat OAuth GitHub invalide');
-        }
-        const credential = GithubAuthProvider.credential(accessToken);
-        await signInWithCredential(auth, credential);
-        setGithubAuthUrl('');
-        setGithubOauthState('');
-      } catch (error) {
-        setAuthError(error.message || 'Erreur de connexion GitHub');
-      } finally {
-        setIsGithubModalVisible(false);
-        setIsLoading(false);
+      if (result.type === 'cancel' || result.type === 'dismiss') return;
+      if (result.type !== 'success') {
+        throw new Error('Invalid GitHub sign-in response');
       }
-    };
 
-    completeGithubLogin();
-    return false;
-  };
+      const accessToken = result.params.access_token;
+      if (!accessToken) {
+        throw new Error('GitHub access token not found');
+      }
 
-  const handleCloseGithubModal = () => {
-    setIsGithubModalVisible(false);
-    setGithubAuthUrl('');
-    setGithubOauthState('');
+      const credential = GithubAuthProvider.credential(accessToken);
+      await signInWithCredential(auth, credential);
+    } catch (error) {
+      console.error('GitHub Sign-In Error:', error);
+      setAuthError(error.message || 'GitHub sign-in failed');
+    } finally {
+      setIsLoading(false);
+      signingIn.current = false;
+    }
   };
 
   const handleLogout = async () => {
@@ -278,7 +231,7 @@ export default function App() {
       }
       setCurrentScreen('home');
     } catch (error) {
-      setAuthError(error.message || 'Erreur lors de la deconnexion');
+      setAuthError(error.message || 'Sign-out failed');
     }
   };
 
@@ -286,7 +239,7 @@ export default function App() {
     return (
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.loadingContainer}>
-          <Text style={styles.infoText}>Chargement...</Text>
+          <Text style={styles.infoText}>Loading...</Text>
         </View>
         <StatusBar style="auto" />
       </SafeAreaView>
@@ -307,10 +260,6 @@ export default function App() {
           authError={authError}
           canUseGoogle={isGoogleConfigured}
           canUseGithub={isGithubConfigured}
-          isGithubModalVisible={isGithubModalVisible}
-          githubAuthUrl={githubAuthUrl}
-          onCloseGithubModal={handleCloseGithubModal}
-          onGithubWebViewRequest={handleGithubWebViewRequest}
         />
       ) : null}
       {currentScreen === 'profile' && authUser ? (
@@ -400,14 +349,15 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
-  socialButton: {
+  githubButton: {
     width: '100%',
     maxWidth: 320,
+    height: 48,
     backgroundColor: '#ffffff',
     borderWidth: 1,
     borderColor: '#cbd5e1',
-    borderRadius: 10,
-    paddingVertical: 12,
+    borderRadius: 4,
+    justifyContent: 'center',
     paddingHorizontal: 16,
   },
   socialButtonContent: {
@@ -428,24 +378,6 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 320,
     height: 48,
-  },
-  githubModalContainer: {
-    flex: 1,
-    backgroundColor: '#f8fafc',
-  },
-  githubModalHeader: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    borderBottomWidth: 1,
-    borderBottomColor: '#cbd5e1',
-  },
-  githubModalTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#0f172a',
   },
   infoText: {
     fontSize: 14,

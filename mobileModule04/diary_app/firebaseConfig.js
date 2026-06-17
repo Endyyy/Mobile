@@ -15,6 +15,6 @@ export const OAUTH_CONFIG = {
     iosClientId: 'YOUR_GOOGLE_IOS_CLIENT_ID',
   },
   github: {
-    clientId: 'YOUR_GITHUB_CLIENT_ID',
+    clientId: 'Ov23lijsx5ARPlgVnWQQ',
   },
 };
