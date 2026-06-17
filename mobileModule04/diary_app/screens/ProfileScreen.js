@@ -12,6 +12,7 @@ import {
   View,
 } from 'react-native';
 import { createNote, deleteNote, subscribeToUserNotes } from '../services/notesService';
+import { formatParisDate } from '../utils/date';
 
 const FEELINGS = [
   { value: 'satisfied', label: 'Satisfait', icon: 'smile-o' },
@@ -20,11 +21,6 @@ const FEELINGS = [
   { value: 'sad', label: 'Triste', icon: 'frown-o' },
   { value: 'angry', label: 'En colere', icon: 'angry' },
 ];
-
-function formatEntryDate(timestamp) {
-  if (!timestamp?.toDate) return 'Date inconnue';
-  return timestamp.toDate().toLocaleString('fr-FR');
-}
 
 function getFeelingMeta(iconValue) {
   return FEELINGS.find((feeling) => feeling.value === iconValue) ?? FEELINGS[2];
@@ -121,7 +117,7 @@ export default function ProfileScreen({ authUser, onLogout }) {
             <FontAwesome name={feeling.icon} size={18} color="#0f172a" />
             <Text style={styles.noteTitle}>{item.title}</Text>
           </View>
-          <Text style={styles.noteDate}>{formatEntryDate(item.date)}</Text>
+          <Text style={styles.noteDate}>{formatParisDate(item.date)}</Text>
           <Text style={styles.notePreview} numberOfLines={2}>
             {item.text}
           </Text>
@@ -231,7 +227,7 @@ export default function ProfileScreen({ authUser, onLogout }) {
           <View style={styles.modalContainer}>
             <ScrollView contentContainerStyle={styles.modalContent}>
               <Text style={styles.modalTitle}>{selectedNote.title}</Text>
-              <Text style={styles.noteDate}>{formatEntryDate(selectedNote.date)}</Text>
+              <Text style={styles.noteDate}>{formatParisDate(selectedNote.date)}</Text>
               <View style={styles.readFeelingRow}>
                 <FontAwesome name={getFeelingMeta(selectedNote.icon).icon} size={20} color="#0f172a" />
                 <Text style={styles.readFeelingText}>{getFeelingMeta(selectedNote.icon).label}</Text>

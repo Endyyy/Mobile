@@ -93,13 +93,14 @@ export default function App() {
       clientId: OAUTH_CONFIG.github.clientId,
       scopes: ['read:user', 'user:email'],
       redirectUri: githubRedirectUri,
-      responseType: AuthSession.ResponseType.Token,
+      responseType: AuthSession.ResponseType.Code,
     },
     GITHUB_DISCOVERY,
   );
 
   const isGoogleConfigured = isConfigured(OAUTH_CONFIG.google.webClientId);
-  const isGithubConfigured = isConfigured(OAUTH_CONFIG.github.clientId);
+  const isGithubConfigured =
+    isConfigured(OAUTH_CONFIG.github.clientId) && isConfigured(OAUTH_CONFIG.github.clientSecret);
 
   useEffect(() => {
     if (!isGoogleConfigured) return;
@@ -187,7 +188,7 @@ export default function App() {
   const handleGithubLogin = async () => {
     if (signingIn.current) return;
     if (!isGithubConfigured) {
-      setAuthError('Missing GitHub OAuth configuration in firebaseConfig.js');
+      setAuthError('Missing GitHub OAuth clientId or clientSecret in firebaseConfig.js');
       return;
     }
     if (!githubRequest) {
@@ -206,7 +207,24 @@ export default function App() {
         throw new Error('Invalid GitHub sign-in response');
       }
 
-      const accessToken = result.params.access_token;
+      const code = result.params.code;
+      if (!code) {
+        throw new Error('GitHub authorization code not found');
+      }
+
+      const tokenResult = await AuthSession.exchangeCodeAsync(
+        {
+          clientId: OAUTH_CONFIG.github.clientId,
+          code,
+          redirectUri: githubRedirectUri,
+          extraParams: {
+            client_secret: OAUTH_CONFIG.github.clientSecret,
+          },
+        },
+        GITHUB_DISCOVERY,
+      );
+
+      const accessToken = tokenResult.accessToken;
       if (!accessToken) {
         throw new Error('GitHub access token not found');
       }

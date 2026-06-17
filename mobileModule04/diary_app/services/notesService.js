@@ -36,6 +36,7 @@ export function subscribeToUserNotes(userEmail, onNotes, onError) {
 }
 
 export async function createNote({ usermail, title, icon, text }) {
+  // serverTimestamp = Firebase server time (UTC). Display uses Europe/Paris in the app.
   await addDoc(collection(db, NOTES_COLLECTION), {
     usermail,
     title,

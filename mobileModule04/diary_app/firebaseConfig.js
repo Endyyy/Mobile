@@ -16,5 +16,6 @@ export const OAUTH_CONFIG = {
   },
   github: {
     clientId: 'Ov23lijsx5ARPlgVnWQQ',
+    clientSecret: '4cc6823f732093e293b4d71e21a69c076f8f1ce5',
   },
 };
