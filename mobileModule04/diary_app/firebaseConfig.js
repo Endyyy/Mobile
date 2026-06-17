@@ -9,10 +9,10 @@ export const FIREBASE_CONFIG = {
 
 export const OAUTH_CONFIG = {
   google: {
-    expoClientId: '872905102438-i26rmcgmlamjunk8cj1codqjfidfj850.apps.googleusercontent.com',
-    androidClientId: 'YOUR_GOOGLE_ANDROID_CLIENT_ID',
-    iosClientId: 'YOUR_GOOGLE_IOS_CLIENT_ID',
+    // webClientId = "Web client (auto created by Google Service)" dans Google Cloud Console
+    // PAS le client iOS ni Android. Firebase > Parametres > Vos applications > SDK Web.
     webClientId: '872905102438-i26rmcgmlamjunk8cj1codqjfidfj850.apps.googleusercontent.com',
+    iosClientId: 'YOUR_GOOGLE_IOS_CLIENT_ID',
   },
   github: {
     clientId: 'YOUR_GITHUB_CLIENT_ID',

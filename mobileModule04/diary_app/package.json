@@ -8,6 +8,7 @@
     "start:lan": "bash -lc 'unset npm_config_prefix && source \"$HOME/.nvm/nvm.sh\" && nvm use && npx expo start --lan --clear'",
     "start:usb": "bash -lc 'unset npm_config_prefix && source \"$HOME/.nvm/nvm.sh\" && nvm use && npx expo start --localhost --android --clear'",
     "android": "npm run start:usb",
+    "android:sha1": "keytool -list -v -keystore android/app/debug.keystore -alias androiddebugkey -storepass android -keypass android | grep -E 'SHA1|SHA256'",
     "ios": "bash -lc 'unset npm_config_prefix && source \"$HOME/.nvm/nvm.sh\" && nvm use && npx expo start --ios'",
     "web": "bash -lc 'unset npm_config_prefix && source \"$HOME/.nvm/nvm.sh\" && nvm use && npx expo start --web'"
   },

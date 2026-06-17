@@ -1,45 +1,26 @@
 import { StatusBar } from 'expo-status-bar';
 import { FontAwesome } from '@expo/vector-icons';
-import {
-  GoogleSignin,
-  GoogleSigninButton,
-  isCancelledResponse,
-  isSuccessResponse,
-  statusCodes,
-} from '@react-native-google-signin/google-signin';
+import { GoogleSignin, GoogleSigninButton, statusCodes } from '@react-native-google-signin/google-signin';
 import * as AuthSession from 'expo-auth-session';
 import * as WebBrowser from 'expo-web-browser';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ImageBackground, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { initializeApp, getApps } from 'firebase/app';
 import {
   GithubAuthProvider,
   GoogleAuthProvider,
-  getAuth,
-  getReactNativePersistence,
-  initializeAuth,
   onAuthStateChanged,
   signInWithCredential,
   signOut,
 } from 'firebase/auth';
-import { doc, getFirestore, serverTimestamp, setDoc } from 'firebase/firestore';
-import { FIREBASE_CONFIG, OAUTH_CONFIG } from './firebaseConfig';
+import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
+import { auth, db } from './firebase';
+import { OAUTH_CONFIG } from './firebaseConfig';
+import ProfileScreen from './screens/ProfileScreen';
 
 WebBrowser.maybeCompleteAuthSession();
 
-const firebaseApp = getApps().length ? getApps()[0] : initializeApp(FIREBASE_CONFIG);
-let auth;
-try {
-  auth = initializeAuth(firebaseApp, {
-    persistence: getReactNativePersistence(AsyncStorage),
-  });
-} catch {
-  auth = getAuth(firebaseApp);
-}
-const db = getFirestore(firebaseApp);
 const isConfigured = (value) => Boolean(value) && !value.startsWith('YOUR_');
 
 function HomeScreen({ onLoginPress }) {
@@ -59,9 +40,7 @@ function AuthScreen({
   onBackPress,
   onGoogleLogin,
   onGithubLogin,
-  onLogout,
   isLoading,
-  authUser,
   authError,
   canUseGoogle,
   canUseGithub,
@@ -70,22 +49,6 @@ function AuthScreen({
   onCloseGithubModal,
   onGithubWebViewRequest,
 }) {
-  if (authUser) {
-    return (
-      <View style={styles.container}>
-        <Text style={styles.title}>Connecte avec succes</Text>
-        <Text style={styles.subtitle}>Salut {authUser.displayName || authUser.email || 'Utilisateur'}</Text>
-        <Text style={styles.subtitle}>UID: {authUser.uid}</Text>
-        <Pressable style={styles.button} onPress={onLogout}>
-          <Text style={styles.buttonText}>Se deconnecter</Text>
-        </Pressable>
-        <Pressable style={styles.secondaryButton} onPress={onBackPress}>
-          <Text style={styles.secondaryButtonText}>Retour</Text>
-        </Pressable>
-      </View>
-    );
-  }
-
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Authentification</Text>
@@ -136,11 +99,13 @@ function AuthScreen({
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState('home');
   const [authUser, setAuthUser] = useState(null);
+  const [isAuthReady, setIsAuthReady] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [authError, setAuthError] = useState('');
   const [isGithubModalVisible, setIsGithubModalVisible] = useState(false);
   const [githubAuthUrl, setGithubAuthUrl] = useState('');
   const [githubOauthState, setGithubOauthState] = useState('');
+  const signingIn = useRef(false);
 
   const githubDiscovery = useMemo(
     () => ({
@@ -151,7 +116,6 @@ export default function App() {
   );
 
   const isGoogleConfigured = isConfigured(OAUTH_CONFIG.google.webClientId);
-
   const isGithubConfigured = isConfigured(OAUTH_CONFIG.github.clientId);
 
   useEffect(() => {
@@ -167,7 +131,10 @@ export default function App() {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setAuthUser(user);
+      setIsAuthReady(true);
+
       if (!user) return;
+
       await setDoc(
         doc(db, 'users', user.uid),
         {
@@ -185,35 +152,54 @@ export default function App() {
     return unsubscribe;
   }, []);
 
+  useEffect(() => {
+    if (!isAuthReady) return;
+
+    if (authUser) {
+      setCurrentScreen('profile');
+      return;
+    }
+
+    if (currentScreen === 'profile') {
+      setCurrentScreen('home');
+    }
+  }, [authUser, isAuthReady, currentScreen]);
+
   const handleGoogleLogin = async () => {
+    if (signingIn.current) return;
     if (!isGoogleConfigured) {
       setAuthError('Configuration Google OAuth manquante dans firebaseConfig.js');
       return;
     }
 
+    signingIn.current = true;
     try {
       setIsLoading(true);
       setAuthError('');
       await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
-      const response = await GoogleSignin.signIn();
+      const { data } = await GoogleSignin.signIn();
 
-      if (isCancelledResponse(response)) return;
-      if (!isSuccessResponse(response)) {
-        throw new Error('Connexion Google invalide');
+      if (data?.idToken) {
+        const credential = GoogleAuthProvider.credential(data.idToken);
+        await signInWithCredential(auth, credential);
+      } else {
+        throw new Error(
+          'Token Google introuvable. Utilisez le client Web Firebase (pas le client iOS/Android) dans webClientId.',
+        );
       }
-
-      const idToken = response.data.idToken;
-      if (!idToken) {
-        throw new Error('Token Google introuvable');
-      }
-
-      const credential = GoogleAuthProvider.credential(idToken);
-      await signInWithCredential(auth, credential);
     } catch (error) {
       if (error?.code === statusCodes.SIGN_IN_CANCELLED) return;
+      console.error('Google Sign-In Error:', error);
+      if (error?.code === statusCodes.DEVELOPER_ERROR) {
+        setAuthError(
+          'DEVELOPER_ERROR : ajoutez le SHA-1 debug dans Firebase (projet diary-1d8a9) pour le package com.achretie.diaryapp, puis utilisez le client Web OAuth comme webClientId. Lancez: npm run android:sha1',
+        );
+        return;
+      }
       setAuthError(error.message || 'Erreur de connexion Google');
     } finally {
       setIsLoading(false);
+      signingIn.current = false;
     }
   };
 
@@ -290,23 +276,34 @@ export default function App() {
       if (isGoogleConfigured) {
         await GoogleSignin.signOut();
       }
+      setCurrentScreen('home');
     } catch (error) {
       setAuthError(error.message || 'Erreur lors de la deconnexion');
     }
   };
 
+  if (!isAuthReady) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.loadingContainer}>
+          <Text style={styles.infoText}>Chargement...</Text>
+        </View>
+        <StatusBar style="auto" />
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.safeArea}>
       {currentScreen === 'home' ? (
         <HomeScreen onLoginPress={() => setCurrentScreen('auth')} />
-      ) : (
+      ) : null}
+      {currentScreen === 'auth' ? (
         <AuthScreen
           onBackPress={() => setCurrentScreen('home')}
           onGoogleLogin={handleGoogleLogin}
           onGithubLogin={handleGithubLogin}
-          onLogout={handleLogout}
           isLoading={isLoading}
-          authUser={authUser}
           authError={authError}
           canUseGoogle={isGoogleConfigured}
           canUseGithub={isGithubConfigured}
@@ -315,7 +312,10 @@ export default function App() {
           onCloseGithubModal={handleCloseGithubModal}
           onGithubWebViewRequest={handleGithubWebViewRequest}
         />
-      )}
+      ) : null}
+      {currentScreen === 'profile' && authUser ? (
+        <ProfileScreen authUser={authUser} onLogout={handleLogout} />
+      ) : null}
       <StatusBar style="auto" />
     </SafeAreaView>
   );
@@ -325,6 +325,12 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: '#0f172a',
+  },
+  loadingContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#f8fafc',
   },
   homeBackground: {
     flex: 1,
@@ -344,6 +350,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 24,
     gap: 16,
+    backgroundColor: '#f8fafc',
   },
   title: {
     fontSize: 28,
