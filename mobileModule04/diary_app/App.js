@@ -204,8 +204,7 @@ export default function App() {
       }
       console.error('Google Sign-In Error:', error);
       if (error?.code === statusCodes.DEVELOPER_ERROR) {
-        console.error('DEVELOPER_ERROR: check SHA-1 and webClientId config');
-        setAuthError('Sign-in configuration error. Please contact support.');
+        setAuthError('Sign-in configuration error.');
         return;
       }
       setAuthError('Google sign-in failed. Please try again.');
