@@ -9,7 +9,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   GithubAuthProvider,
   GoogleAuthProvider,
-  fetchSignInMethodsForEmail,
   linkWithCredential,
   onAuthStateChanged,
   signInWithCredential,
@@ -73,7 +72,11 @@ function AuthScreen({
         disabled={!canUseGoogle || isLoading}
       />
       {isLoading ? <Text style={styles.infoText}>Signing in...</Text> : null}
-      {authError ? <Text style={styles.errorText}>{authError}</Text> : null}
+      {authError ? (
+        <View style={styles.infoBanner}>
+          <Text style={styles.infoBannerText}>{authError}</Text>
+        </View>
+      ) : null}
       <Pressable style={styles.secondaryButton} onPress={onBackPress}>
         <Text style={styles.secondaryButtonText}>Back</Text>
       </Pressable>
@@ -192,15 +195,20 @@ export default function App() {
         throw new Error('Google ID token not found. Check webClientId in firebaseConfig.js.');
       }
     } catch (error) {
-      if (error?.code === statusCodes.SIGN_IN_CANCELLED) return;
-      console.error('Google Sign-In Error:', error);
-      if (error?.code === statusCodes.DEVELOPER_ERROR) {
-        setAuthError(
-          'DEVELOPER_ERROR: add your debug SHA-1 in Firebase for package com.achretie.diaryapp and use the Web OAuth client as webClientId. Run: npm run android:sha1',
-        );
+      if (
+        error?.code === statusCodes.SIGN_IN_CANCELLED ||
+        error?.code === statusCodes.IN_PROGRESS
+      ) {
+        setAuthError('');
         return;
       }
-      setAuthError(error.message || 'Google sign-in failed');
+      console.error('Google Sign-In Error:', error);
+      if (error?.code === statusCodes.DEVELOPER_ERROR) {
+        console.error('DEVELOPER_ERROR: check SHA-1 and webClientId config');
+        setAuthError('Sign-in configuration error. Please contact support.');
+        return;
+      }
+      setAuthError('Google sign-in failed. Please try again.');
     } finally {
       setIsLoading(false);
       signingIn.current = false;
@@ -267,22 +275,14 @@ export default function App() {
         }
 
         pendingCredential.current = credential;
-        const email = signInError.customData?.email;
-        const methods = email ? await fetchSignInMethodsForEmail(auth, email) : [];
-        const existingProvider = methods.includes('google.com')
-          ? 'Google'
-          : methods.includes('github.com')
-            ? 'GitHub'
-            : 'another provider';
-
         setAuthError(
-          `This email is already registered with ${existingProvider}. Sign in with ${existingProvider} to link GitHub to your account.`,
+          'This email is already linked to a Google account. Tap "Sign in with Google" to continue — your GitHub account will be linked automatically.',
         );
         return;
       }
     } catch (error) {
       console.error('GitHub Sign-In Error:', error);
-      setAuthError(error.message || 'GitHub sign-in failed');
+      setAuthError('GitHub sign-in failed. Please try again.');
     } finally {
       setIsLoading(false);
       signingIn.current = false;
@@ -464,5 +464,21 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#dc2626',
     textAlign: 'center',
+  },
+  infoBanner: {
+    width: '100%',
+    maxWidth: 320,
+    backgroundColor: '#f0f9ff',
+    borderWidth: 1,
+    borderColor: '#bae6fd',
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  infoBannerText: {
+    fontSize: 13,
+    color: '#0369a1',
+    textAlign: 'center',
+    lineHeight: 18,
   },
 });
