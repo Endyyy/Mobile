@@ -9,6 +9,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   GithubAuthProvider,
   GoogleAuthProvider,
+  fetchSignInMethodsForEmail,
+  linkWithCredential,
   onAuthStateChanged,
   signInWithCredential,
   signOut,
@@ -86,6 +88,7 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [authError, setAuthError] = useState('');
   const signingIn = useRef(false);
+  const pendingCredential = useRef(null);
 
   const githubRedirectUri = useMemo(() => AuthSession.makeRedirectUri({ scheme: 'diaryapp' }), []);
   const [githubRequest, , githubPromptAsync] = AuthSession.useAuthRequest(
@@ -144,12 +147,30 @@ export default function App() {
       return;
     }
 
-    if (currentScreen === 'profile') {
-      setCurrentScreen('home');
+    setCurrentScreen((screen) => (screen === 'profile' ? 'home' : screen));
+  }, [authUser, isAuthReady]);
+
+  const linkPendingCredential = async () => {
+    if (!pendingCredential.current || !auth.currentUser) return;
+
+    try {
+      await linkWithCredential(auth.currentUser, pendingCredential.current);
+      pendingCredential.current = null;
+      setAuthError('');
+    } catch (linkError) {
+      if (linkError?.code === 'auth/provider-already-linked') {
+        pendingCredential.current = null;
+        return;
+      }
+      throw linkError;
     }
-  }, [authUser, isAuthReady, currentScreen]);
+  };
 
   const handleGoogleLogin = async () => {
+    if (authUser || auth.currentUser) {
+      setCurrentScreen('profile');
+      return;
+    }
     if (signingIn.current) return;
     if (!isGoogleConfigured) {
       setAuthError('Missing Google OAuth configuration in firebaseConfig.js');
@@ -166,6 +187,7 @@ export default function App() {
       if (data?.idToken) {
         const credential = GoogleAuthProvider.credential(data.idToken);
         await signInWithCredential(auth, credential);
+        await linkPendingCredential();
       } else {
         throw new Error('Google ID token not found. Check webClientId in firebaseConfig.js.');
       }
@@ -186,6 +208,10 @@ export default function App() {
   };
 
   const handleGithubLogin = async () => {
+    if (authUser || auth.currentUser) {
+      setCurrentScreen('profile');
+      return;
+    }
     if (signingIn.current) return;
     if (!isGithubConfigured) {
       setAuthError('Missing GitHub OAuth clientId or clientSecret in firebaseConfig.js');
@@ -200,7 +226,7 @@ export default function App() {
     try {
       setIsLoading(true);
       setAuthError('');
-      const result = await githubPromptAsync();
+      const result = await githubPromptAsync({ preferEphemeralSession: true });
 
       if (result.type === 'cancel' || result.type === 'dismiss') return;
       if (result.type !== 'success') {
@@ -215,10 +241,11 @@ export default function App() {
       const tokenResult = await AuthSession.exchangeCodeAsync(
         {
           clientId: OAUTH_CONFIG.github.clientId,
+          clientSecret: OAUTH_CONFIG.github.clientSecret,
           code,
           redirectUri: githubRedirectUri,
           extraParams: {
-            client_secret: OAUTH_CONFIG.github.clientSecret,
+            code_verifier: githubRequest.codeVerifier ?? '',
           },
         },
         GITHUB_DISCOVERY,
@@ -230,7 +257,29 @@ export default function App() {
       }
 
       const credential = GithubAuthProvider.credential(accessToken);
-      await signInWithCredential(auth, credential);
+
+      try {
+        await signInWithCredential(auth, credential);
+        pendingCredential.current = null;
+      } catch (signInError) {
+        if (signInError?.code !== 'auth/account-exists-with-different-credential') {
+          throw signInError;
+        }
+
+        pendingCredential.current = credential;
+        const email = signInError.customData?.email;
+        const methods = email ? await fetchSignInMethodsForEmail(auth, email) : [];
+        const existingProvider = methods.includes('google.com')
+          ? 'Google'
+          : methods.includes('github.com')
+            ? 'GitHub'
+            : 'another provider';
+
+        setAuthError(
+          `This email is already registered with ${existingProvider}. Sign in with ${existingProvider} to link GitHub to your account.`,
+        );
+        return;
+      }
     } catch (error) {
       console.error('GitHub Sign-In Error:', error);
       setAuthError(error.message || 'GitHub sign-in failed');
@@ -243,6 +292,7 @@ export default function App() {
   const handleLogout = async () => {
     try {
       setAuthError('');
+      pendingCredential.current = null;
       await signOut(auth);
       if (isGoogleConfigured) {
         await GoogleSignin.signOut();
@@ -267,9 +317,17 @@ export default function App() {
   return (
     <SafeAreaView style={styles.safeArea}>
       {currentScreen === 'home' ? (
-        <HomeScreen onLoginPress={() => setCurrentScreen('auth')} />
+        <HomeScreen
+          onLoginPress={() => {
+            if (authUser) {
+              setCurrentScreen('profile');
+              return;
+            }
+            setCurrentScreen('auth');
+          }}
+        />
       ) : null}
-      {currentScreen === 'auth' ? (
+      {currentScreen === 'auth' && !authUser ? (
         <AuthScreen
           onBackPress={() => setCurrentScreen('home')}
           onGoogleLogin={handleGoogleLogin}
